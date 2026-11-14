@@ -25,6 +25,8 @@ CHAMPS_PISTE = ["nom", "societe", "type", "statut", "source", "email",
 CHAMPS_CONTACT = ["nom", "societe", "fonction", "email", "telephone",
                   "piste_id", "notes"]
 
+SOURCES_PAR_DEFAUT = ["CollectiveWork", "mon-consultant-indépendant", "Autre"]
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS pistes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -52,6 +54,10 @@ CREATE TABLE IF NOT EXISTS contacts (
     FOREIGN KEY (piste_id) REFERENCES pistes(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pistes_relance ON pistes(prochaine_relance);
+CREATE TABLE IF NOT EXISTS sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom TEXT NOT NULL UNIQUE
+);
 """
 
 
@@ -111,10 +117,64 @@ class Database:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._seed_sources()
         self.conn.commit()
+
+    def _seed_sources(self):
+        """Alimente le référentiel des sources s'il est vide (premier lancement)."""
+        if self.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 0:
+            for nom in SOURCES_PAR_DEFAUT:
+                self.conn.execute("INSERT OR IGNORE INTO sources (nom) VALUES (?)", (nom,))
 
     def fermer(self):
         self.conn.close()
+
+    # ---------------- référentiel des sources ----------------
+
+    def sources(self):
+        """Sources du référentiel, avec le nombre de pistes qui les utilisent."""
+        sql = ("SELECT s.id, s.nom, COUNT(p.id) AS nb_pistes FROM sources s"
+               " LEFT JOIN pistes p ON p.source = s.nom"
+               " GROUP BY s.id ORDER BY s.nom COLLATE NOCASE")
+        return self.conn.execute(sql).fetchall()
+
+    def _valider_nom_source(self, nom):
+        nom = (nom or "").strip()
+        if not nom:
+            raise ValueError("Le nom de la source est obligatoire.")
+        return nom
+
+    def ajouter_source(self, nom):
+        nom = self._valider_nom_source(nom)
+        try:
+            cur = self.conn.execute("INSERT INTO sources (nom) VALUES (?)", (nom,))
+        except sqlite3.IntegrityError:
+            raise ValueError("La source « %s » existe déjà." % nom)
+        self.conn.commit()
+        return cur.lastrowid
+
+    def renommer_source(self, sid, nouveau_nom):
+        nouveau_nom = self._valider_nom_source(nouveau_nom)
+        try:
+            self.conn.execute("UPDATE sources SET nom=? WHERE id=?", (nouveau_nom, sid))
+        except sqlite3.IntegrityError:
+            raise ValueError("La source « %s » existe déjà." % nouveau_nom)
+        self.conn.commit()
+
+    def supprimer_source(self, sid):
+        """Supprime une source du référentiel.
+
+        Retourne le nombre de pistes qui l'utilisaient ; ces pistes
+        conservent simplement leur valeur texte (pas de perte de données).
+        """
+        row = self.conn.execute("SELECT nom FROM sources WHERE id=?", (sid,)).fetchone()
+        if row is None:
+            return 0
+        nb = self.conn.execute("SELECT COUNT(*) FROM pistes WHERE source=?",
+                               (row["nom"],)).fetchone()[0]
+        self.conn.execute("DELETE FROM sources WHERE id=?", (sid,))
+        self.conn.commit()
+        return nb
 
     # ---------------- pistes ----------------
 

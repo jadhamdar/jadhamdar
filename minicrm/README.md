@@ -12,6 +12,7 @@ Aucune dépendance externe : Python 3 (bibliothèque standard uniquement : `tkin
 - **Contacts** : nom, société, fonction, e-mail, téléphone, notes, liaison optionnelle à une piste (la suppression d'une piste conserve ses contacts).
 - **Relances** : liste des pistes actives à relancer, triées par date, **en retard affichées en rouge** ; boutons pour marquer « relance faite » (décale de +7 jours) ou choisir une nouvelle date.
 - **Tableau de bord** : compteurs (pistes par type et par statut, contacts, relances en retard / du jour) et les 8 prochaines relances.
+- **Référentiel des sources** (onglet *Sources*) : ajouter, renommer ou supprimer les sources de pistes (ex. `CollectiveWork`, `mon-consultant-indépendant`) ; le champ *Source* de l'onglet *Pistes* est une **liste déroulante** alimentée par ce référentiel. Supprimer une source ne touche pas aux pistes existantes.
 - **Export CSV** (point-virgule, compatible Excel) des pistes et des contacts via le menu *Fichier*.
 - **Données locales** : tout est stocké dans `minicrm.db`, créé à côté de l'exécutable — l'application est portable (copie le `.exe` + la base sur une clé USB).
 
