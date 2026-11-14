@@ -1,0 +1,49 @@
+name: Build MiniCRM.exe
+
+# Le code de MiniCRM vit dans le sous-dossier minicrm/ de ce dépôt.
+# Ce workflow DOIT rester à la racine .github/workflows/ pour être exécuté par GitHub.
+
+on:
+  push:
+    tags:
+      - "v*"
+    paths:
+      - "minicrm/**"
+      - ".github/workflows/release-exe.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: minicrm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer PyInstaller
+        run: pip install pyinstaller
+
+      - name: Compiler MiniCRM.exe
+        run: pyinstaller --onefile --windowed --name MiniCRM --distpath dist crm.py
+
+      - name: Archiver l'executable (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiniCRM-windows
+          path: minicrm/dist/MiniCRM.exe
+
+      - name: Publier la release (tag v* uniquement)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MiniCRM ${{ github.ref_name }}
+          body: "MiniCRM.exe — executable Windows autonome, compile automatiquement (PyInstaller). Aucune installation requise : double-clic pour lancer."
+          files: minicrm/dist/MiniCRM.exe
