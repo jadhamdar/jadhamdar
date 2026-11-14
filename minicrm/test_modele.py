@@ -120,5 +120,51 @@ class TestDatabase(unittest.TestCase):
             self.assertIn("ACME", lignes[1])
 
 
+class TestSources(unittest.TestCase):
+    def setUp(self):
+        self.db = Database(":memory:")
+
+    def tearDown(self):
+        self.db.fermer()
+
+    def test_seed_par_defaut(self):
+        noms = [s["nom"] for s in self.db.sources()]
+        self.assertIn("CollectiveWork", noms)
+        self.assertIn("mon-consultant-indépendant", noms)
+
+    def test_ajouter_et_doublon(self):
+        self.db.ajouter_source("LinkedIn")
+        self.assertIn("LinkedIn", [s["nom"] for s in self.db.sources()])
+        with self.assertRaises(ValueError):
+            self.db.ajouter_source("LinkedIn")
+
+    def test_nom_obligatoire(self):
+        with self.assertRaises(ValueError):
+            self.db.ajouter_source("   ")
+
+    def test_renommer(self):
+        sid = self.db.ajouter_source("Ancien nom")
+        self.db.renommer_source(sid, "Nouveau nom")
+        noms = [s["nom"] for s in self.db.sources()]
+        self.assertIn("Nouveau nom", noms)
+        self.assertNotIn("Ancien nom", noms)
+        with self.assertRaises(ValueError):
+            self.db.renommer_source(sid, "CollectiveWork")
+
+    def test_supprimer_conserve_les_pistes(self):
+        sid = self.db.ajouter_source("Source X")
+        self.db.ajouter_piste({"nom": "P1", "source": "Source X"})
+        nb = self.db.supprimer_source(sid)
+        self.assertEqual(nb, 1)
+        self.assertNotIn("Source X", [s["nom"] for s in self.db.sources()])
+        self.assertEqual(self.db.pistes(recherche="P1")[0]["source"], "Source X")
+
+    def test_compteur_utilisation(self):
+        self.db.ajouter_piste({"nom": "P1", "source": "CollectiveWork"})
+        self.db.ajouter_piste({"nom": "P2", "source": "CollectiveWork"})
+        row = [s for s in self.db.sources() if s["nom"] == "CollectiveWork"][0]
+        self.assertEqual(row["nb_pistes"], 2)
+
+
 if __name__ == "__main__":
     unittest.main()

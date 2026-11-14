@@ -54,7 +54,8 @@ class OngletPistes(ttk.Frame):
         ttk.Combobox(form, textvariable=self.var["statut"], values=STATUTS_PISTE,
                      state="readonly", width=14).grid(row=1, column=1, sticky="w", padx=4, pady=3)
         ttk.Label(form, text="Source").grid(row=1, column=2, sticky="e", padx=4, pady=3)
-        ttk.Entry(form, textvariable=self.var["source"], width=26).grid(row=1, column=3, sticky="w", padx=4, pady=3)
+        self.cb_source = ttk.Combobox(form, textvariable=self.var["source"], state="readonly", width=26)
+        self.cb_source.grid(row=1, column=3, sticky="w", padx=4, pady=3)
         ttk.Label(form, text="E-mail").grid(row=1, column=4, sticky="e", padx=4, pady=3)
         ttk.Entry(form, textvariable=self.var["email"], width=28).grid(row=1, column=5, sticky="w", padx=4, pady=3)
 
@@ -174,6 +175,11 @@ class OngletPistes(ttk.Frame):
             return
         for c in CHAMPS_PISTE:
             self.var[c].set(row[c] or "")
+        source = row["source"] or ""
+        if source:
+            valeurs = list(self.cb_source.cget("values"))
+            if source not in valeurs:
+                self.cb_source.configure(values=valeurs + [source])
 
     def selectionner(self, pid):
         iid = str(pid)
@@ -184,6 +190,7 @@ class OngletPistes(ttk.Frame):
             self._on_select()
 
     def rafraichir(self):
+        self.cb_source.configure(values=[s["nom"] for s in self.db.sources()])
         self.tree.delete(*self.tree.get_children())
         for r in self.db.pistes(self.var_recherche.get(), self.filtre_type.get(), self.filtre_statut.get()):
             self.tree.insert("", "end", iid=str(r["id"]),
@@ -438,6 +445,103 @@ class OngletRelances(ttk.Frame):
                              tags=("retard",) if en_retard else ())
 
 
+class OngletSources(ttk.Frame):
+    """Référentiel des sources de pistes : ajouter, renommer, supprimer."""
+
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app = app
+        self.db = app.db
+        self.var_nom = tk.StringVar()
+        self._construire()
+        self.rafraichir()
+
+    def _construire(self):
+        haut = ttk.Frame(self)
+        haut.pack(fill="x", padx=8, pady=8)
+        ttk.Label(haut, text="Source :").pack(side="left")
+        ttk.Entry(haut, textvariable=self.var_nom, width=40).pack(side="left", padx=4)
+        ttk.Button(haut, text="Ajouter", command=self.ajouter).pack(side="left", padx=2)
+        ttk.Button(haut, text="Renommer la sélection", command=self.renommer).pack(side="left", padx=2)
+        ttk.Button(haut, text="Supprimer la sélection", command=self.supprimer).pack(side="left", padx=2)
+        ttk.Button(haut, text="Effacer", command=lambda: self.var_nom.set("")).pack(side="left", padx=2)
+
+        conteneur = ttk.Frame(self)
+        conteneur.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.tree = ttk.Treeview(conteneur, columns=("id", "nom", "nb_pistes"),
+                                 show="headings", selectmode="browse")
+        for cid, label, largeur in [("id", "ID", 50), ("nom", "Source", 320),
+                                    ("nb_pistes", "Pistes utilisant cette source", 240)]:
+            self.tree.heading(cid, text=label)
+            self.tree.column(cid, width=largeur, anchor="w")
+        vsb = ttk.Scrollbar(conteneur, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vsb.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        conteneur.rowconfigure(0, weight=1)
+        conteneur.columnconfigure(0, weight=1)
+        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+
+    def _id_selection(self):
+        focus = self.tree.focus()
+        if not focus:
+            return None
+        try:
+            return int(focus)
+        except ValueError:
+            return None
+
+    def _on_select(self, _e=None):
+        focus = self.tree.focus()
+        if not focus:
+            return
+        valeurs = self.tree.item(focus, "values")
+        self.var_nom.set(valeurs[1] if len(valeurs) > 1 else "")
+
+    def ajouter(self):
+        try:
+            self.db.ajouter_source(self.var_nom.get())
+        except ValueError as exc:
+            messagebox.showerror("Source invalide", str(exc), parent=self)
+            return
+        self.var_nom.set("")
+        self.app.rafraichir_tout()
+
+    def renommer(self):
+        sid = self._id_selection()
+        if sid is None:
+            messagebox.showinfo("Aucune sélection", "Sélectionne d'abord une source dans la liste.", parent=self)
+            return
+        try:
+            self.db.renommer_source(sid, self.var_nom.get())
+        except ValueError as exc:
+            messagebox.showerror("Source invalide", str(exc), parent=self)
+            return
+        self.app.rafraichir_tout()
+
+    def supprimer(self):
+        sid = self._id_selection()
+        if sid is None:
+            messagebox.showinfo("Aucune sélection", "Sélectionne d'abord une source dans la liste.", parent=self)
+            return
+        valeurs = self.tree.item(self.tree.focus(), "values")
+        nom, nb = valeurs[1], int(valeurs[2])
+        msg = "Supprimer la source « %s » du référentiel ?" % nom
+        if nb:
+            msg += "\n\n%d piste(s) l'utilisent : elles conserveront la valeur « %s »." % (nb, nom)
+        if not messagebox.askyesno("Confirmer", msg, parent=self):
+            return
+        self.db.supprimer_source(sid)
+        self.var_nom.set("")
+        self.app.rafraichir_tout()
+
+    def rafraichir(self):
+        self.tree.delete(*self.tree.get_children())
+        for r in self.db.sources():
+            self.tree.insert("", "end", iid=str(r["id"]),
+                             values=(r["id"], r["nom"], r["nb_pistes"]))
+
+
 class OngletDashboard(ttk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent)
@@ -520,15 +624,18 @@ class App(tk.Tk):
         self.tab_pistes = OngletPistes(self.notebook, self)
         self.tab_contacts = OngletContacts(self.notebook, self)
         self.tab_relances = OngletRelances(self.notebook, self)
+        self.tab_sources = OngletSources(self.notebook, self)
         for tab, titre in ((self.tab_dashboard, "Tableau de bord"),
                            (self.tab_pistes, "Pistes"),
                            (self.tab_contacts, "Contacts"),
-                           (self.tab_relances, "Relances")):
+                           (self.tab_relances, "Relances"),
+                           (self.tab_sources, "Sources")):
             self.notebook.add(tab, text=titre)
         self.notebook.bind("<<NotebookTabChanged>>", lambda _e: self.rafraichir_tout())
 
     def rafraichir_tout(self):
-        for tab in (self.tab_dashboard, self.tab_pistes, self.tab_contacts, self.tab_relances):
+        for tab in (self.tab_dashboard, self.tab_pistes, self.tab_contacts,
+                    self.tab_relances, self.tab_sources):
             tab.rafraichir()
 
     def _menu(self):
